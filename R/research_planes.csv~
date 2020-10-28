@@ -1,0 +1,25 @@
+#Forschungsflugzeugdatenbank;;;;
+#Alexander Buetow;;;;
+#15.12.16;;;;
+;;;;
+#Beschreibung:;;;;
+#Diese Datenbank enthält Forschungsflugzeuge und deren Kennungen, sodass die Routine research_plane_tracking.R diese aus den Rohdatenströmen identifizieren können.  Quellen: https://www.flightradar24.com/ | http://www.airframes.org/;;;;
+;;;;
+institute;registration;address;ac_type;icao_type
+DLR;D-ATRA;3C0C4B;Airbus A320-232;A320
+DLR;D-FDLR;3D526B;Cessna 208B Grand Garavan;C208
+DLR;D-CMET;3CE02B;Falcon 50E 5;FA20
+DLR;D-CODE;3CE54A;Dornier 228-101;D228
+DLR;D-CFFU;3CCDCA;Dornier 228-212;D228
+DLR;D-ADLR;3C5192;Gulfstream G550;GLF5
+DLR;D-ADAM;3C502D;VFW-Fokker 614;VF14
+Germanwings;D-AGWO;3C5EEF;Airbus A319-132;A319
+Germanwings;D-AKNV;3C6DD6;Airbus A319-112;A319
+Germanwings;D-AGWC;3C5EE3;Airbus A319-132;A319
+Germanwings;D-AKNU;3C6DD5;Airbus A319-112;A319
+Germanwings;D-AGWM;3C5EED;Airbus A319-132;A319
+Germanwings;D-AIQM;3C662D;Airbus A320-211;A320
+Germanwings;D-AGWZ;3C5EFA;Airbus A319-132;A319
+Germanwings;D-AKNO;3C6DCF;Airbus A319-112;A319
+Germanwings;D-AGWQ;3C5EF1;Airbus A319-132;A319
+Germanwings;D-AKNF;3C6DC6;Airbus A319-112;A319

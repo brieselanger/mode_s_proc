@@ -1,0 +1,125 @@
+
+R version 3.5.2 (2018-12-20) -- "Eggshell Igloo"
+Copyright (C) 2018 The R Foundation for Statistical Computing
+Platform: x86_64-redhat-linux-gnu (64-bit)
+
+R ist freie Software und kommt OHNE JEGLICHE GARANTIE.
+Sie sind eingeladen, es unter bestimmten Bedingungen weiter zu verbreiten.
+Tippen Sie 'license()' or 'licence()' für Details dazu.
+
+R ist ein Gemeinschaftsprojekt mit vielen Beitragenden.
+Tippen Sie 'contributors()' für mehr Information und 'citation()',
+um zu erfahren, wie R oder R packages in Publikationen zitiert werden können.
+
+Tippen Sie 'demo()' für einige Demos, 'help()' für on-line Hilfe, oder
+'help.start()' für eine HTML Browserschnittstelle zur Hilfe.
+Tippen Sie 'q()', um R zu verlassen.
+
+> #!/usr/lib64/R/bin"
+> #Mode-S Daten im AVR-MLAT-Format einlesen
+> #Alexander Buetow
+> #15.12.16
+> #Quellen: "Technical Provisions for Mode S Services and Extended Squitter" (ICAO, 2011)
+> #         http://www.lll.lu/~edward/edward/adsb/DecodingADSBposition.html (Stand: August 2014)
+> 
+> rm(list=ls())
+> 
+> #Setze Hauptarbeitsverszeichnis
+> dir <- '~/adsb/' #Hauptverzeichnis
+> datestr <- format(Sys.time(), '%Y%m%d_%H', 'GMT') #generiere Timestamp fuer Outputdateien
+> 
+> #dir <- '~/Dropbox/Dokumente/WeWi/modes/adsb/' #zum testen
+> #datestr <- '20161215_09' #zum testen
+> 
+> dir.work <- paste0(dir, 'R/') #work directory
+> dir.raw <- paste0(dir, 'raw/')
+> dir.save <- paste0(dir, 'data/') #save directory for data
+> dir.plot <- paste0(dir.save, 'plots/')
+> dir.mean <- paste0(dir.save, 'means/')
+> dir.spec <- paste0(dir.save, 'special_flights/') #spezielle Fluege
+> setwd(dir.work) #set work directory
+> 
+> file1 <- paste0(dir.raw ,datestr,'.dat') #Inputfile
+> 
+> #Einlesen des World Magnetic Model Datensatzes (Stand: 2016.5)
+> file2 <- paste0(dir.work, 'WMMGrid2016_5.txt')
+> 
+> #-----Funktionen und Libraries------
+> source('df17decode.R') #Dekodierungsalgorithmus fuer DF17-Bloecke
+> source('df2021decode.R') #Dekodierungsalgorithmus fuer DF20/21-Bloecke, BDS 4,0 und 5,0
+> source('icao_recon.R') #CRC-Routine zur Rekonstruktion der interogierten ICAO-Adressen in DF20/21-Meldungen
+> source('meteocalc.R') #Berechnungsroutine fuer meteorologische Auswertung
+> source('press.R') #Funktion zur Umrechnung der barometrischen Hohe in Luftdruck
+> 
+> #library(bit64, lib.loc="/people/alexb/R/x86_64-redhat-linux-gnu-library/3.4/")
+> library(bit64)
+Lade nötiges Paket: bit
+Attaching package bit
+package:bit (c) 2008-2012 Jens Oehlschlaegel (GPL-2)
+creators: bit bitwhich
+coercion: as.logical as.integer as.bit as.bitwhich which
+operator: ! & | xor != ==
+querying: print length any all min max range sum summary
+bit access: length<- [ [<- [[ [[<-
+for more help type ?bit
+
+Attache Paket: ‘bit’
+
+The following object is masked from ‘package:base’:
+
+    xor
+
+Attaching package bit64
+package:bit64 (c) 2011-2012 Jens Oehlschlaegel
+creators: integer64 seq :
+coercion: as.integer64 as.vector as.logical as.integer as.double as.character as.bin
+logical operator: ! & | xor != == < <= >= >
+arithmetic operator: + - * / %/% %% ^
+math: sign abs sqrt log log2 log10
+math: floor ceiling trunc round
+querying: is.integer64 is.vector [is.atomic} [length] format print str
+values: is.na is.nan is.finite is.infinite
+aggregation: any all min max range sum prod
+cumulation: diff cummin cummax cumsum cumprod
+access: length<- [ [<- [[ [[<-
+combine: c rep cbind rbind as.data.frame
+WARNING don't use as subscripts
+WARNING semantics differ from integer
+for more help type ?bit64
+
+Attache Paket: ‘bit64’
+
+The following object is masked from ‘package:bit’:
+
+    still.identical
+
+The following objects are masked from ‘package:base’:
+
+    :, %in%, is.double, match, order, rank
+
+> 
+> #Funktion zur Umwandlung der hex-Strings in Binary-Strings
+> hextobin <- function(hexdata){
++   k <- length(hexdata)
++   print(k)
++   bindata <- rep(NA,k)
++   liste <- cbind(c("0","1","2","3","4","5","6","7","8","9","A","B","C","D","E","F"),
++                  c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111"))
++   for (i in 1:28){ #ueber jeden einzelen hex-Character der 112bit-Messages
++     hex <- substr(as.character(hexdata),i,i)
++     for (j in 1:16){ #fuer alle hex-Werte
++       line <- which(hex == liste[j,1])
++       bindata[line] <- paste0(bindata[line],liste[j,2])
++     }
++   }
++   bindata <- substr(bindata,3,114)
++   
++   return(bindata)
++ }
+> 
+> #---------------------
+> 
+> raw.dat <- read.table(file1, colClasses="character")
+Fehler in read.table(file1, colClasses = "character") : 
+  keine Zeilen im Input verfügbar
+Ausführung angehalten

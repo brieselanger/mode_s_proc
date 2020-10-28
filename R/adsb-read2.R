@@ -1,0 +1,140 @@
+#!/usr/lib64/R/bin"
+#Mode-S Daten im AVR-MLAT-Format einlesen
+#Alexander B.
+#15.12.16
+#Quellen: "Technical Provisions for Mode S Services and Extended Squitter" (ICAO, 2011)
+#         http://www.lll.lu/~edward/edward/adsb/DecodingADSBposition.html (Stand: August 2014)
+
+rm(list=ls())
+
+#Setze Hauptarbeitsverszeichnis
+dir <- '~/adsb/' #Hauptverzeichnis
+datestr <- format(Sys.time(), '%Y%m%d_%H', 'GMT') #generiere Timestamp fuer Outputdateien
+
+#dir <- '~/Dropbox/Dokumente/WeWi/modes/adsb/' #zum testen
+#datestr <- '20161215_09' #zum testen
+
+dir.work <- paste0(dir, 'R/') #work directory
+dir.raw <- paste0(dir, 'raw/')
+dir.save <- paste0(dir, 'data/') #save directory for data
+dir.plot <- paste0(dir.save, 'plots/')
+dir.mean <- paste0(dir.save, 'means/')
+dir.spec <- paste0(dir.save, 'special_flights/') #spezielle Fluege
+setwd(dir.work) #set work directory
+
+file1 <- paste0(dir.raw ,datestr,'.dat') #Inputfile
+
+#Einlesen des World Magnetic Model Datensatzes (Stand: 2016.5)
+file2 <- paste0(dir.work, 'WMMGrid2016_5.txt')
+
+#-----Funktionen und Libraries------
+source('df17decode.R') #Dekodierungsalgorithmus fuer DF17-Bloecke
+source('df2021decode.R') #Dekodierungsalgorithmus fuer DF20/21-Bloecke, BDS 4,0 und 5,0
+source('icao_recon.R') #CRC-Routine zur Rekonstruktion der interogierten ICAO-Adressen in DF20/21-Meldungen
+source('meteocalc.R') #Berechnungsroutine fuer meteorologische Auswertung
+source('press.R') #Funktion zur Umrechnung der barometrischen Hohe in Luftdruck
+
+#library(bit64, lib.loc="/people/alexb/R/x86_64-redhat-linux-gnu-library/3.4/")
+library(bit64)
+
+#Funktion zur Umwandlung der hex-Strings in Binary-Strings
+hextobin <- function(hexdata){
+  k <- length(hexdata)
+  print(k)
+  bindata <- rep(NA,k)
+  liste <- cbind(c("0","1","2","3","4","5","6","7","8","9","A","B","C","D","E","F"),
+                 c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111"))
+  for (i in 1:28){ #ueber jeden einzelen hex-Character der 112bit-Messages
+    hex <- substr(as.character(hexdata),i,i)
+    for (j in 1:16){ #fuer alle hex-Werte
+      line <- which(hex == liste[j,1])
+      bindata[line] <- paste0(bindata[line],liste[j,2])
+    }
+  }
+  bindata <- substr(bindata,3,114)
+  
+  return(bindata)
+}
+
+#---------------------
+
+raw.dat <- read.table(file1, colClasses="character")
+raw.dat <- raw.dat[which(nchar(raw.dat[,1]) == 42),] #filtere 56bit-Messages raus
+raw.dat <- cbind(substr(raw.dat,2,13), substr(raw.dat,14,41)) #trenne timestamp
+
+#Umrechnen des Timestamps
+#Dabei wird vorausgesetzt, dass die in den Rohdaten hinterlegte, erste Message genau
+#innerhalb der ersten Sekunde des Bezugszeitraums abgelegt wurde. Bei einer geringen Messagerate kann das zu
+#signifikanten Fehlern des Zeitstempels führen, ist aber auch nachts mit dem Mode-S Beast ein vernachlässigbares Problem.
+raw.dat[,1] <- round(as.integer64(as.numeric(paste0("0x", raw.dat[,1])))/12000000) #rechne wahren timestamp um
+raw.dat[,1] <- as.integer(raw.dat[,1])-as.integer(raw.dat[1,1])+as.numeric(strptime(datestr, '%Y%m%d_%H', tz='UTC'))-3600
+raw.bin <- hextobin(raw.dat[,2]) #wandle Hex- in Binary-Strings um
+
+#Datenbloecke splitten
+raw <- data.frame(cbind(raw.dat[,1], substr(raw.dat[,2], 1, 2), substr(raw.dat[,2], 3, 8),
+                             substr(raw.dat[,2], 9, 22), substr(raw.dat[,2], 23, 28), raw.bin), NA, NA, NA, NA,
+                  NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA)
+names(raw) <- c("time", "format", "address", "mess", "parity", "bin", "format2", "type", "alt", "alt.geo", "hdiff",
+                "vs", "flag", "lat.dec", "lon.dec", "lat", "lon", "hdg", "trk", "rola", "tas", "kias", "gs", "mach")
+
+#entferne unnoetige Meldungen
+raw <- raw[-c(which(raw$format %in% "80"),which(raw$mess %in% "00000000000000")),]
+
+#+++Auswertung der DF17-Bloecke+++
+selrows <- which(raw$format %in% c("8D","8F")) #selektiere DF17-Messages
+raw[selrows,] <- df17decode(raw[selrows,])
+
+#+++Auswertung der DF20/21-Bloecke+++
+#dekodiere BDS-Register 5,0 und 6,0
+selrows <- which(raw$format %in% c("A0","A8")) #selektiere DF20/21-Messages
+raw[selrows,] <- df2021decode(raw[selrows,])
+#loesche nicht dekodierbare DF20/21-Bloecke: wenn keine exemplarische Variable aus den BDS-Registern dekodiert werden konnte
+raw <- raw[which(xor(is.na(raw$rola),is.na(raw$kias)) | raw$format %in% c("8D","8F")),]
+
+#rekonstruiere ICAO-Adressen der verbliebenen DF20/21-Messages (recht langsam!)
+selrows <- which(raw$format %in% c("A0","A8")) #selektiere DF20/21-Messages erneut
+raw$address <- strtoi(as.character(raw$address), base=16) #wandle hex-ICAO-Adresse in dezimal um
+raw$address[selrows] <- icao_recon(raw$bin[selrows],raw$parity[selrows])
+
+#Aufraeumen und Vorbereitung zur meteo. Auswertung: unnoetige Datenfelder loeschen, Formatfeld formatieren, hdg-Wert umd Deklination korrigieren
+raw <- raw[,-which(names(raw) %in% c("mess","type","flag","lat.dec","lon.dec","parity","bin"))] #loesche nicht mehr benoetigte Felder
+raw <- raw[-which(raw$format %in% c("8D","8F") & is.na(raw$lat) & is.na(raw$hdiff)),] #loesche DF17-Felder, die keine dekodierte Position beinhalten
+raw$format <- raw$format2
+raw <- raw[,-4]
+raw$format[which(is.na(raw$format) & !is.na(raw$mach))] <- 6 #BDS 6,0
+raw$format[which(is.na(raw$format))] <- 5 #BDS 5,0
+raw$format[which(!is.na(raw$hdiff))] <- 179 #DF17, BDS 0,9
+raw$format[which(raw$format == 17)] <- 175 #DF17, BDS 0,5
+raw$time <- as.integer(as.character(raw$time))
+
+#extrahieren der Forschungsflüge (reseaarch_planes)
+re_planes <- read.csv2(file='./research_planes.csv', skip=7, header=TRUE)
+re_planes$address <- strtoi(as.character(re_planes$address), base=16)
+re_planes.sel <- which(re_planes$address %in% raw$address)
+
+#Speichere Rohdaten ab
+for (i in re_planes.sel){
+  write.table(raw[raw$address == re_planes$address[i],], row.names=FALSE,
+              file=paste0(dir.spec, 'rawdata_', re_planes$institute[i], '_', re_planes$registration[i], '_', datestr, '.dat'))
+}
+
+#+++meteorologische Auswertung+++
+raw <- meteocalc(raw)
+
+#Entferne unnoetige Spalte bzw. benenne um
+raw <- raw[,-which(names(raw) == "format")]
+names(raw)[which(names(raw) == 'hdiff')] <- 'press'
+
+#Druckkoordinaten ausrechnen
+raw$press <- press(raw$alt)
+
+#+++Speichern der Einzelmessungen+++
+latlon <- cbind(raw$lat, raw$lon)
+raw <- round(raw, 3)
+raw$lat <- latlon[,1]
+raw$lon <- latlon[,2]
+write.table(raw, row.names=FALSE, file=paste0(dir.save, 'modes_ber_', datestr, '.dat'))
+
+#+++Rechnen und Plotten der Mittelwerte zum TEMP-Vergleich+++
+source('plotting.R')
+
